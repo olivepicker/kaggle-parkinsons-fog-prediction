@@ -84,7 +84,7 @@ if self.model_type == 'current' :
 </br>
 
 `What I Learned`
-* 1st Solutions are using transformers fluently, I realized that basic and theorical approach is more important than others.
+* 1st Solutions are using transformers fluently, I realized that basic and theoretical approach is more important than others.
 * (as always) trust cv
 * More insight into 1d signal processing
 </br>
