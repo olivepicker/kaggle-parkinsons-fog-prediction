@@ -14,10 +14,12 @@ My method is inspired by object detection.
 # Input Data Preprocessing Examples
 time_to = 3600
 shape = int(time_to **(1/2))
+
 if self.model_type == 'current' :
     start = 0
     end = 0
     status = 0
+    
     if time - (time_to // 2) < 0 :
         start = 0
         status = 1
@@ -33,12 +35,14 @@ if self.model_type == 'current' :
     arr = np.zeros((time_to, 3))
     out = data[start : end, : ]
     out_len = out.shape[0]
+    
     if status == 0 :
         arr[:,:] = out
     elif status == 1 :
         arr[time_to-out_len:, :] = out
     else :
         arr[:out_len, :] = out
+        
     out = arr.reshape(3, shape, shape)
 ```
 
