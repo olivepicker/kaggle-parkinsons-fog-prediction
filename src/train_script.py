@@ -4,11 +4,11 @@ import argparse
 import os
 import pandas as pd
 from trainer import ModelTrainer
-from models.model_cls import Net as clsModel
+from model import Net as clsModel
 
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 from helper import get_set_seed, exists, beartype_jit
-from dataset import CNN2dModelDataset, train_augment, valid_augment_lstm, get_folds_lstm
+from dataset import CNN2dModelDataset, train_augment
 
 
 
