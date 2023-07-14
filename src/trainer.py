@@ -27,10 +27,9 @@ from beartype.vale import Is
 
 from functions import compute_binary_scores, compute_multi_scores
 from helper import get_set_seed, exists, beartype_jit
-from dataset import CNN2dDataset, train_augment, valid_augment_lstm, get_folds_lstm
+from dataset import CNN2dDataset, train_augment
 
 from optimizer import get_linear_scheduler, get_optimizer
-#os.environ['CUDA_VISIBLE_DEVICES'] = '1'
 import pickle
 
 try:
@@ -122,13 +121,13 @@ class ModelTrainer(nn.Module):
         
         # train_df.to_csv(self.results_folder + '/' + 'train_df.csv', index=False)
         # valid_df.to_csv(self.results_folder + '/' + 'valid_df.csv', index=False)
-        self.train_ds = LSTMModelDataset(
+        self.train_ds = CNN2dDataset(
             df = train_df,
             npy = npy,
             augment = train_augment(),
             time_to = time_to, model_type='current',
         ) 
-        self.valid_ds = LSTMModelDataset(
+        self.valid_ds = CNN2dDataset(
             df = valid_df,
             npy = npy,
             augment = None,
@@ -232,7 +231,7 @@ class ModelTrainer(nn.Module):
         # logs
 
         logs = {}
-
+        
         # update 
 
         for _ in range(self.grad_accum_every):
@@ -246,12 +245,10 @@ class ModelTrainer(nn.Module):
                 batch['label'] = batch['label'].to(self.device)
                 non_empty_batch = True
                 batch = self.model(batch)
-                
-                #loss = self.accelerator.reduce(batch['bce_loss'], 'mean')
-                loss2 = self.accelerator.reduce(batch['focal_loss'], 'mean').mean()
-                #loss2 = self.accelerator.reduce(batch['arc_loss'], 'mean').mean()
-                self.accelerator.backward(loss = loss2 / self.grad_accum_every)
-                accum_log(logs, {'loss': loss2.item() / self.grad_accum_every})
+
+                train_loss = self.accelerator.reduce(batch['focal_loss'], 'mean').mean()
+                self.accelerator.backward(loss = train_loss / self.grad_accum_every)
+                accum_log(logs, {'loss': train_loss.item() / self.grad_accum_every})
 
         if exists(self.max_grad_norm):
             self.accelerator.clip_grad_norm_(self.model.parameters(), self.max_grad_norm)
@@ -273,8 +270,6 @@ class ModelTrainer(nn.Module):
     
     def valid_one_step(self, ep):
         steps = int(self.steps.item())
-        valid_loss = None
-        valid_accuracy = None
         non_empty_batch = False
         
         while non_empty_batch is False:
@@ -288,9 +283,7 @@ class ModelTrainer(nn.Module):
                 batch['signals'] = batch['signals'].to(self.device)
                 batch['label'] = batch['label'].to(self.device)
                 batch = self.model(batch)
-            #loss1 = self.accelerator.reduce(batch['bce_loss'], 'mean')
             valid_loss = self.accelerator.reduce(batch['focal_loss'], 'mean').mean()
-            #valid_loss = self.accelerator.reduce(batch['arc_loss'], 'mean').mean()
             probs = self.accelerator.gather_for_metrics(batch['probability'].contiguous())
             labels = self.accelerator.gather_for_metrics(batch['label'].contiguous())
                         
@@ -315,7 +308,7 @@ class ModelTrainer(nn.Module):
         gpus = 1
         for ep in tqdm(range(self.num_train_epoches)):
             losses = []
-            #all_steps = len(self.valid_ds) // self.batch_size // gpus
+            
             for i in tqdm(range(len(self.train_ds) // self.batch_size // gpus + 1)):
                 logs, loss = self.train_one_step(ep)
                 log_fn(logs)
@@ -338,20 +331,19 @@ class ModelTrainer(nn.Module):
                 b_scores = compute_binary_scores(labels, probs)
                 losses = np.mean(losses)
                 print(f'valid_loss : {losses}')
-                #acc_score,  f1_score, recall_score = scores['acc'], scores['f1'], scores['recall']
-                m_acc_score, m_f1_score, m_roc_score, m_recall_score, m_map_score = b_scores['acc'], b_scores['roc'], b_scores['f1'], b_scores['recall'], b_scores['score']
+                
+                b_acc_score, b_f1_score, b_roc_score, b_recall_score, b_map_score = b_scores['acc'], b_scores['roc'], b_scores['f1'], b_scores['recall'], b_scores['score']
 
                 self.accelerator.log({
-                "valid_acc_score" : m_acc_score,
-                "valid_roc_score" : m_roc_score,
-                "valid_f1_score"  : m_f1_score,
-                "valid_recall_score" : m_recall_score,
-                "valid_map_score" : m_map_score
+                "valid_acc_score" : b_acc_score,
+                "valid_roc_score" : b_roc_score,
+                "valid_f1_score"  : b_f1_score,
+                "valid_recall_score" : b_recall_score,
+                "valid_map_score" : b_map_score
                 },step = ep)
-                
-                #print(f'ep {ep} acc : {acc_score}, f1 : {f1_score}, recall : {recall_score}')
-                print(f'ep {ep} CPC_score acc : {m_acc_score}, roc : {m_roc_score}, f1 : {m_f1_score}, recall : {m_recall_score}')
-                print(f'metric_score : {m_map_score}')
+
+                print(f'ep {ep} CPC_score acc : {b_acc_score}, roc : {b_roc_score}, f1 : {b_f1_score}, recall : {b_recall_score}')
+                print(f'metric_score : {b_map_score}')
             if self.is_main and not (ep % self.save_model_every) and not (debug):
                 self.print(f'{ep}: saving model to {str(self.results_folder)}')
 
